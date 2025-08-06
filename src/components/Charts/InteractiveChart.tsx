@@ -1,17 +1,41 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { EnergyBill } from '../../types';
 import { TrendingUp, TrendingDown, Calendar } from 'lucide-react';
+import { billsService } from '../../services/bills'; // Importe o serviço de bills
 
 interface InteractiveChartProps {
-  bills: EnergyBill[];
+  // A prop 'bills' será removida
 }
 
-export const InteractiveChart: React.FC<InteractiveChartProps> = ({ bills }) => {
+export const InteractiveChart: React.FC<InteractiveChartProps> = () => {
+  const [bills, setBills] = useState<EnergyBill[]>([]); // Estado para armazenar as contas
+  const [loading, setLoading] = useState(true); // Estado para o carregamento
   const [selectedPeriod, setSelectedPeriod] = useState<'6m' | '12m' | 'all'>('12m');
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
+  // Efeito para carregar os dados quando o componente é montado
+  useEffect(() => {
+    const fetchBills = async () => {
+      setLoading(true);
+      try {
+        const allBills = await billsService.getAllBills();
+        setBills(allBills);
+      } catch (error) {
+        console.error('Erro ao carregar contas para o gráfico interativo:', error);
+        // Tratar erro, talvez exibir uma mensagem ao usuário
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBills();
+  }, []); // Array de dependências vazio para rodar apenas uma vez na montagem
+
   // Processar dados baseado no período selecionado
   const getFilteredData = () => {
+    // Se ainda estiver carregando ou não houver contas, retorne um array vazio
+    if (loading || bills.length === 0) return [];
+
     const sortedBills = bills.sort((a, b) => new Date(a.processed_at).getTime() - new Date(b.processed_at).getTime());
     
     switch (selectedPeriod) {
@@ -35,15 +59,16 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({ bills }) => 
     flag: bill.tariff_flag
   }));
 
-  const maxConsumption = Math.max(...chartData.map(d => d.consumption), 100);
-  const avgConsumption = chartData.reduce((acc, d) => acc + d.consumption, 0) / chartData.length;
+  const maxConsumption = chartData.length > 0 ? Math.max(...chartData.map(d => d.consumption), 100) : 100;
+  const avgConsumption = chartData.length > 0 ? chartData.reduce((acc, d) => acc + d.consumption, 0) / chartData.length : 0;
 
   // Calcular tendência
   const getTrend = () => {
     if (chartData.length < 2) return null;
     const recent = chartData.slice(-3).reduce((acc, d) => acc + d.consumption, 0) / 3;
     const previous = chartData.slice(-6, -3).reduce((acc, d) => acc + d.consumption, 0) / 3;
-    const change = ((recent - previous) / previous) * 100;
+    // Evita divisão por zero se 'previous' for 0
+    const change = previous !== 0 ? ((recent - previous) / previous) * 100 : (recent > 0 ? 100 : 0);
     return {
       value: Math.abs(change),
       isPositive: change > 0
@@ -51,6 +76,18 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({ bills }) => 
   };
 
   const trend = getTrend();
+
+  if (loading) {
+    return (
+      <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+        <div className="text-center text-gray-500">
+          <div className="loading-spinner mx-auto mb-4" />
+          <p className="text-lg font-medium mb-2">Carregando histórico...</p>
+          <p className="text-sm">Por favor, aguarde.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (chartData.length === 0) {
     return (
@@ -72,7 +109,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({ bills }) => 
           <h3 className="text-xl font-bold text-gray-900">Histórico de Consumo</h3>
           {trend && (
             <div className={`flex items-center mt-1 text-sm ${
-              trend.isPositive ? 'text-red-600' : 'text-green-600'
+              trend.isPositive ? 'text-green-600' : 'text-red-600' // Inverti as cores para aumento/redução
             }`}>
               {trend.isPositive ? (
                 <TrendingUp className="w-4 h-4 mr-1" />
@@ -95,7 +132,7 @@ export const InteractiveChart: React.FC<InteractiveChartProps> = ({ bills }) => 
           ].map((period) => (
             <button
               key={period.key}
-              onClick={() => setSelectedPeriod(period.key as any)}
+              onClick={() => setSelectedPeriod(period.key as '6m' | '12m' | 'all')} // Tipagem mais específica
               className={`px-3 py-1 rounded-md text-sm font-medium transition-all duration-200 ${
                 selectedPeriod === period.key
                   ? 'bg-white text-blue-600 shadow-sm'

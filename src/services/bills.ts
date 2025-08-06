@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { EnergyBill, AdminMetrics } from '../types';
+import { EnergyBill, AdminMetrics, User, Feedback } from '../types'; // Adicionei 'User' e 'Feedback' aqui
 
 // Helper function to ensure supabase is initialized
 const getSupabase = () => {
@@ -67,11 +67,19 @@ export const billsService = {
 
   async getAdminMetrics(): Promise<AdminMetrics> {
     const supabaseClient = getSupabase();
-    const { data: bills, error } = await supabaseClient
+    
+    // Busca todas as contas de energia
+    const { data: bills, error: billsError } = await supabaseClient
       .from('energy_bills')
       .select('*');
 
-    if (error) throw error;
+    // Busca todos os usuários
+    const { data: users, error: usersError } = await supabaseClient
+      .from('users')
+      .select('id, address'); // Selecionamos o endereço para o consumo por região
+
+    if (billsError) throw billsError;
+    if (usersError) throw usersError;
 
     const totalBills = bills?.length || 0;
     const avgConsumption = bills?.reduce((acc, bill) => acc + bill.consumption_kwh, 0) / totalBills || 0;
@@ -82,14 +90,30 @@ export const billsService = {
       bill.processed_at.substring(0, 7) === thisMonth
     ).length || 0;
 
-    // TODO: Adicionar lógica para buscar o total de usuários e o consumo por região
+    // Lógica para buscar o total de usuários
+    const totalUsers = users?.length || 0;
+
+    // Lógica para calcular o consumo por região
+    const consumptionByRegion: { [key: string]: number } = {};
+    if (bills && users) {
+      bills.forEach(bill => {
+        const user = users.find(u => u.id === bill.user_id);
+        if (user && user.address) {
+          // Extrai a região (ex: São Paulo/SP) do endereço
+          const regionMatch = user.address.match(/(\w+\/\w+)$/);
+          const region = regionMatch ? regionMatch[1] : 'Não especificada';
+          consumptionByRegion[region] = (consumptionByRegion[region] || 0) + bill.consumption_kwh;
+        }
+      });
+    }
+
     return {
       total_bills_processed: totalBills,
       average_consumption: Math.round(avgConsumption),
-      total_users: 0,
+      total_users: totalUsers,
       bills_this_month: billsThisMonth,
       average_value: Math.round(avgValue),
-      consumption_by_region: {}
+      consumption_by_region: consumptionByRegion
     };
   },
 
@@ -104,6 +128,69 @@ export const billsService = {
         user_id: userId
       });
 
+    if (error) throw error;
+  },
+  
+  // Funções adicionadas para o UserManagement
+  async getAllUsers(): Promise<User[]> {
+    const supabaseClient = getSupabase();
+    const { data, error } = await supabaseClient
+      .from('users')
+      .select('*');
+
+    if (error) throw error;
+    return data || [];
+  },
+  
+  async deleteUser(userId: string): Promise<void> {
+    const supabaseClient = getSupabase();
+    const { error } = await supabaseClient
+      .from('users')
+      .delete()
+      .eq('id', userId);
+
+    if (error) throw error;
+  },
+  
+  async updateUser(user: User): Promise<User> {
+    const supabaseClient = getSupabase();
+    const { data, error } = await supabaseClient
+      .from('users')
+      .update(user)
+      .eq('id', user.id)
+      .select()
+      .single();
+
+    if (error) throw error;
+    return data;
+  },
+  
+  // Funções adicionadas/atualizadas para o FeedbackManagement
+  async getAllFeedbacks(): Promise<Feedback[]> {
+    const supabaseClient = getSupabase();
+    const { data, error } = await supabaseClient
+      .from('feedback')
+      .select(`
+        *,
+        users(name)
+      `)
+      .order('created_at', { ascending: false });
+
+    if (error) throw error;
+    return (data as any[]).map(f => ({
+      ...f,
+      customer_name: f.users.name,
+      status: f.status || 'pending', // Garante que o status tenha um valor padrão
+    })) || [];
+  },
+
+  async updateFeedbackStatus(feedbackId: string, status: 'approved' | 'rejected') {
+    const supabaseClient = getSupabase();
+    const { error } = await supabaseClient
+      .from('feedback')
+      .update({ status })
+      .eq('id', feedbackId);
+    
     if (error) throw error;
   },
 

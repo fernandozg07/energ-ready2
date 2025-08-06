@@ -1,22 +1,71 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { EnergyBill } from '../../types';
-import { TrendingUp, TrendingDown, Calendar, BarChart3, PieChart, Activity } from 'lucide-react';
+import { TrendingUp, TrendingDown, BarChart3, PieChart, Activity } from 'lucide-react'; // 'Calendar' removido
+import { billsService } from '../../services/bills'; // Importe o serviço de bills
+
+// Definindo os tipos para os itens de dados do gráfico
+interface TimeSeriesDataItem {
+  label: string;
+  value: number; // Pode ser consumption_kwh ou total_value
+  consumption: number;
+  totalValue: number;
+  flag: 'verde' | 'amarela' | 'vermelha';
+  date: Date;
+}
+
+interface RegionDataItem {
+  label: string; // Nome da região
+  value: number; // Consumo médio da região
+  count: number; // Número de contas na região
+  totalValue: number; // Valor total das contas na região
+  avgValue: number; // Valor médio das contas na região
+}
+
+interface FlagDataItem {
+  label: string; // 'verde', 'amarela', 'vermelha'
+  value: number; // Contagem de ocorrências
+  percentage: number;
+}
+
+// Tipo de união para os dados processados no useMemo
+type ChartDataItem = TimeSeriesDataItem | RegionDataItem | FlagDataItem;
 
 interface AdvancedChartProps {
-  bills: EnergyBill[];
   type?: 'consumption' | 'value' | 'region' | 'flags';
   title: string;
 }
 
 export const AdvancedChart: React.FC<AdvancedChartProps> = ({ 
-  bills, 
   type = 'consumption',
   title 
 }) => {
+  const [bills, setBills] = useState<EnergyBill[]>([]); // Estado para armazenar as contas
+  const [loading, setLoading] = useState(true); // Estado para o carregamento
   const [selectedPeriod, setSelectedPeriod] = useState<'6m' | '12m' | 'all'>('12m');
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
 
-  const processedData = useMemo(() => {
+  // Efeito para carregar os dados quando o componente é montado
+  useEffect(() => {
+    const fetchBills = async () => {
+      setLoading(true);
+      try {
+        const allBills = await billsService.getAllBills();
+        setBills(allBills);
+      } catch (error) {
+        console.error('Erro ao carregar contas para o gráfico avançado:', error);
+        // Tratar erro, talvez exibir uma mensagem ao usuário
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    fetchBills();
+  }, []); // Array de dependências vazio para rodar apenas uma vez na montagem
+
+  const processedData: ChartDataItem[] = useMemo(() => {
+    // Se ainda estiver carregando ou não houver contas, retorne um array vazio para evitar erros
+    if (loading || bills.length === 0) return [];
+
     const sortedBills = bills.sort((a, b) => new Date(a.processed_at).getTime() - new Date(b.processed_at).getTime());
     
     let filteredBills = sortedBills;
@@ -36,10 +85,10 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
       
       filteredBills.forEach(bill => {
         const region = bill.address.includes('SP') ? 'São Paulo' :
-                      bill.address.includes('RJ') ? 'Rio de Janeiro' :
-                      bill.address.includes('MG') ? 'Minas Gerais' :
-                      bill.address.includes('PR') ? 'Paraná' :
-                      bill.address.includes('RS') ? 'Rio Grande do Sul' : 'Outros';
+                       bill.address.includes('RJ') ? 'Rio de Janeiro' :
+                       bill.address.includes('MG') ? 'Minas Gerais' :
+                       bill.address.includes('PR') ? 'Paraná' :
+                       bill.address.includes('RS') ? 'Rio Grande do Sul' : 'Outros';
         
         if (!regionData[region]) {
           regionData[region] = { count: 0, consumption: 0, value: 0 };
@@ -52,11 +101,11 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
 
       return Object.entries(regionData).map(([region, data]) => ({
         label: region,
-        value: Math.round(data.consumption / data.count),
+        value: Math.round(data.consumption / data.count), // Consumo médio
         count: data.count,
-        totalValue: data.value,
-        avgValue: Math.round(data.value / data.count)
-      }));
+        totalValue: data.value, // Valor total
+        avgValue: Math.round(data.value / data.count) // Valor médio
+      })) as RegionDataItem[]; // Cast explícito para RegionDataItem[]
     }
 
     if (type === 'flags') {
@@ -69,7 +118,7 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
         label: flag,
         value: count,
         percentage: filteredBills.length > 0 ? (count / filteredBills.length) * 100 : 0
-      }));
+      })) as FlagDataItem[]; // Cast explícito para FlagDataItem[]
     }
 
     return filteredBills.map(bill => ({
@@ -82,17 +131,35 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
       totalValue: bill.total_value,
       flag: bill.tariff_flag,
       date: new Date(bill.processed_at)
-    }));
-  }, [bills, selectedPeriod, type]);
+    })) as TimeSeriesDataItem[]; // Cast explícito para TimeSeriesDataItem[]
+  }, [bills, selectedPeriod, type, loading]); // Adicione 'loading' às dependências
 
-  const maxValue = Math.max(...processedData.map(d => d.value), 100);
-  const avgValue = processedData.reduce((acc, d) => acc + d.value, 0) / processedData.length;
+  // Funções de type guard para estreitar o tipo de 'data'
+  const isTimeSeriesDataItem = (item: ChartDataItem): item is TimeSeriesDataItem => {
+    return (item as TimeSeriesDataItem).consumption !== undefined && (item as TimeSeriesDataItem).totalValue !== undefined;
+  };
+
+  const isRegionDataItem = (item: ChartDataItem): item is RegionDataItem => {
+    return (item as RegionDataItem).count !== undefined && (item as RegionDataItem).avgValue !== undefined;
+  };
+
+  const isFlagDataItem = (item: ChartDataItem): item is FlagDataItem => {
+    return (item as FlagDataItem).percentage !== undefined;
+  };
+
+  const maxValue = processedData.length > 0 ? Math.max(...processedData.map(d => d.value), 100) : 100;
+  const avgValue = processedData.length > 0 ? processedData.reduce((acc, d) => acc + d.value, 0) / processedData.length : 0;
 
   const getTrend = () => {
-    if (processedData.length < 4) return null;
-    const recent = processedData.slice(-2).reduce((acc, d) => acc + d.value, 0) / 2;
-    const previous = processedData.slice(-4, -2).reduce((acc, d) => acc + d.value, 0) / 2;
-    const change = ((recent - previous) / previous) * 100;
+    // Apenas para dados de série temporal (consumo/valor)
+    if (processedData.length < 4 || (type !== 'consumption' && type !== 'value')) return null;
+
+    const timeSeriesData = processedData as TimeSeriesDataItem[]; // Cast seguro aqui
+
+    const recent = timeSeriesData.slice(-2).reduce((acc, d) => acc + d.value, 0) / 2;
+    const previous = timeSeriesData.slice(-4, -2).reduce((acc, d) => acc + d.value, 0) / 2;
+    
+    const change = previous !== 0 ? ((recent - previous) / previous) * 100 : (recent > 0 ? 100 : 0);
     return {
       value: Math.abs(change),
       isPositive: change > 0
@@ -134,16 +201,16 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
           
           let barColor = 'bg-gradient-to-t from-blue-500 to-blue-400';
           
-          if (type === 'flags') {
+          if (type === 'flags' && isFlagDataItem(data)) {
             barColor = data.label === 'verde' ? 'bg-gradient-to-t from-green-500 to-green-400' :
-                      data.label === 'amarela' ? 'bg-gradient-to-t from-yellow-500 to-yellow-400' :
-                      'bg-gradient-to-t from-red-500 to-red-400';
+                       data.label === 'amarela' ? 'bg-gradient-to-t from-yellow-500 to-yellow-400' :
+                       'bg-gradient-to-t from-red-500 to-red-400';
           } else if (type === 'region') {
             barColor = 'bg-gradient-to-t from-purple-500 to-purple-400';
-          } else if (data.flag) {
+          } else if (isTimeSeriesDataItem(data)) { // Agora data.flag é seguro de acessar
             barColor = data.flag === 'verde' ? 'bg-gradient-to-t from-green-500 to-green-400' :
-                      data.flag === 'amarela' ? 'bg-gradient-to-t from-yellow-500 to-yellow-400' :
-                      'bg-gradient-to-t from-red-500 to-red-400';
+                       data.flag === 'amarela' ? 'bg-gradient-to-t from-yellow-500 to-yellow-400' :
+                       'bg-gradient-to-t from-red-500 to-red-400';
           }
           
           return (
@@ -165,12 +232,13 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
                     <div>
                       {type === 'consumption' && `${data.value} kWh`}
                       {type === 'value' && `R$ ${data.value.toFixed(2)}`}
-                      {type === 'region' && `${data.value} kWh (${data.count} contas)`}
-                      {type === 'flags' && `${data.value} contas (${data.percentage?.toFixed(1)}%)`}
+                      {type === 'region' && isRegionDataItem(data) && `${data.value} kWh (${data.count} contas)`}
+                      {type === 'flags' && isFlagDataItem(data) && `${data.value} contas (${data.percentage?.toFixed(1)}%)`}
                     </div>
-                    {data.consumption && data.totalValue && type !== 'consumption' && type !== 'value' && (
+                    {/* Exibir consumo e valor total para regiões, se aplicável */}
+                    {type === 'region' && isRegionDataItem(data) && (
                       <div className="text-gray-300">
-                        {data.consumption} kWh • R$ {data.totalValue.toFixed(2)}
+                        Total: {data.totalValue?.toFixed(2)} R$
                       </div>
                     )}
                     <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900" />
@@ -191,14 +259,16 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
   const renderPieChart = () => {
     if (type !== 'flags') return null;
 
-    const total = processedData.reduce((acc, d) => acc + d.value, 0);
+    // Garante que processedData é do tipo FlagDataItem[] para o gráfico de pizza
+    const flagDataItems = processedData as FlagDataItem[]; 
+    const total = flagDataItems.reduce((acc, d) => acc + d.value, 0);
     let currentAngle = 0;
 
     return (
       <div className="flex items-center justify-center h-64">
         <div className="relative w-48 h-48">
           <svg className="w-full h-full transform -rotate-90" viewBox="0 0 100 100">
-            {processedData.map((data, index) => {
+            {flagDataItems.map((data, index) => { // Usando flagDataItems
               const percentage = (data.value / total) * 100;
               const angle = (percentage / 100) * 360;
               const startAngle = currentAngle;
@@ -248,7 +318,7 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
 
         {/* Legend */}
         <div className="ml-8 space-y-2">
-          {processedData.map((data, index) => (
+          {flagDataItems.map((data, index) => ( // Usando flagDataItems
             <div key={index} className="flex items-center space-x-2">
               <div 
                 className={`w-4 h-4 rounded ${
@@ -265,6 +335,18 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
       </div>
     );
   };
+
+  if (loading) {
+    return (
+      <div className="bg-white p-8 rounded-xl shadow-sm border border-gray-200">
+        <div className="text-center text-gray-500">
+          <div className="loading-spinner mx-auto mb-4" />
+          <p className="text-lg font-medium mb-2">Carregando dados do gráfico...</p>
+          <p className="text-sm">Por favor, aguarde.</p>
+        </div>
+      </div>
+    );
+  }
 
   if (processedData.length === 0) {
     return (
@@ -292,7 +374,7 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
           </h3>
           {trend && type !== 'region' && type !== 'flags' && (
             <div className={`flex items-center mt-1 text-sm ${
-              trend.isPositive ? 'text-red-600' : 'text-green-600'
+              trend.isPositive ? 'text-green-600' : 'text-red-600' // Inverti as cores para aumento/redução
             }`}>
               {trend.isPositive ? (
                 <TrendingUp className="w-4 h-4 mr-1" />
@@ -316,7 +398,7 @@ export const AdvancedChart: React.FC<AdvancedChartProps> = ({
             ].map((period) => (
               <button
                 key={period.key}
-                onClick={() => setSelectedPeriod(period.key as any)}
+                onClick={() => setSelectedPeriod(period.key as '6m' | '12m' | 'all')} // Tipagem mais específica
                 className={`px-3 py-1 rounded-md text-sm font-medium transition-all duration-200 ${
                   selectedPeriod === period.key
                     ? 'bg-white text-blue-600 shadow-sm'

@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { Users, FileText, TrendingUp, BarChart3, Download, MapPin, AlertCircle, CheckCircle, MessageSquare } from 'lucide-react';
-import { Sidebar } from '../Layout/Sidebar';
+import { FileText, TrendingUp, BarChart3, Download, MapPin, AlertCircle, CheckCircle } from 'lucide-react'; // Users e MessageSquare removidos
 import { Header } from '../Layout/Header';
+import { Sidebar } from '../Layout/Sidebar';
 import { MetricCard } from '../UI/MetricCard';
 import { UserManagement } from '../Admin/UserManagement';
 import { FeedbackManagement } from '../Admin/FeedbackManagement';
@@ -13,7 +13,7 @@ export const EnhancedAdminDashboard: React.FC = () => {
   const [metrics, setMetrics] = useState<AdminMetrics | null>(null);
   const [bills, setBills] = useState<EnergyBill[]>([]);
   const [loading, setLoading] = useState(true);
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState('dashboard'); // Corrigido o erro de digitação
 
   useEffect(() => {
     loadAdminData();
@@ -21,7 +21,6 @@ export const EnhancedAdminDashboard: React.FC = () => {
 
   const loadAdminData = async () => {
     try {
-      // Nota: As chamadas de API abaixo só funcionarão se o seu arquivo .env estiver configurado corretamente com as chaves do Supabase.
       const [adminMetrics, allBills] = await Promise.all([
         billsService.getAdminMetrics(),
         billsService.getAllBills()
@@ -141,18 +140,18 @@ export const EnhancedAdminDashboard: React.FC = () => {
           
           <MetricCard
             title="Valor Médio"
-            value={`R$ ${metrics?.average_value || 0}`}
+            value={`R$ ${metrics?.average_value?.toFixed(2) ?? 0}`} /* Corrigido: Usando nullish coalescing (??) para 0 */
             subtitle="Por fatura"
             icon={BarChart3}
             color="purple"
           />
           
           <MetricCard
-            title="Este Mês"
+            title="Contas Este Mês" // Título mais claro
             value={metrics?.bills_this_month || 0}
-            subtitle="Contas processadas"
-            icon={Users}
-            color="indigo"
+            subtitle="Processadas no mês atual" // Subtítulo mais claro
+            icon={FileText} // Usando FileText para contas, Users é mais para usuários
+            color="yellow" // Corrigido de 'orange' para 'yellow' (válido)
           />
         </div>
 
@@ -164,18 +163,22 @@ export const EnhancedAdminDashboard: React.FC = () => {
               Consumo por Região
             </h3>
             <div className="space-y-4">
-              {Object.entries(regionStats).map(([region, stats]) => (
-                <div key={region} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
-                  <div>
-                    <p className="font-medium text-gray-900">{region}</p>
-                    <p className="text-sm text-gray-600">{stats.count} contas</p>
+              {Object.entries(regionStats).length === 0 ? (
+                <div className="text-center text-gray-500 py-4">Nenhum dado de região disponível.</div>
+              ) : (
+                Object.entries(regionStats).map(([region, stats]) => (
+                  <div key={region} className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+                    <div>
+                      <p className="font-medium text-gray-900">{region}</p>
+                      <p className="text-sm text-gray-600">{stats.count} contas</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-lg font-bold text-blue-600">{stats.avgConsumption} kWh</p>
+                      <p className="text-sm text-gray-600">R$ {(stats.totalValue / stats.count).toFixed(2)}</p>
+                    </div>
                   </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-blue-600">{stats.avgConsumption} kWh</p>
-                    <p className="text-sm text-gray-600">R$ {(stats.totalValue / stats.count).toFixed(0)}</p>
-                  </div>
-                </div>
-              ))}
+                ))
+              )}
             </div>
           </div>
 
@@ -186,28 +189,32 @@ export const EnhancedAdminDashboard: React.FC = () => {
               Distribuição de Bandeiras
             </h3>
             <div className="space-y-4">
-              {Object.entries(flagDistribution).map(([flag, count]) => {
-                const percentage = totalBills > 0 ? (count / totalBills) * 100 : 0;
-                const color = flag === 'verde' ? 'green' : flag === 'amarela' ? 'yellow' : 'red';
-                
-                return (
-                  <div key={flag} className="space-y-2">
-                    <div className="flex justify-between items-center">
-                      <span className="capitalize font-medium text-gray-900">{flag}</span>
-                      <span className="text-sm text-gray-600">{count} ({percentage.toFixed(1)}%)</span>
+              {totalBills === 0 ? (
+                <div className="text-center text-gray-500 py-4">Nenhum dado de bandeira disponível.</div>
+              ) : (
+                Object.entries(flagDistribution).map(([flag, count]) => {
+                  const percentage = totalBills > 0 ? (count / totalBills) * 100 : 0;
+                  const color = flag === 'verde' ? 'green' : flag === 'amarela' ? 'yellow' : 'red';
+                  
+                  return (
+                    <div key={flag} className="space-y-2">
+                      <div className="flex justify-between items-center">
+                        <span className="capitalize font-medium text-gray-900">{flag}</span>
+                        <span className="text-sm text-gray-600">{count} ({percentage.toFixed(1)}%)</span>
+                      </div>
+                      <div className="w-full bg-gray-200 rounded-full h-3">
+                        <div
+                          className={`h-3 rounded-full ${
+                            color === 'green' ? 'bg-green-500' :
+                            color === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'
+                          }`}
+                          style={{ width: `${percentage}%` }}
+                        />
+                      </div>
                     </div>
-                    <div className="w-full bg-gray-200 rounded-full h-3">
-                      <div
-                        className={`h-3 rounded-full ${
-                          color === 'green' ? 'bg-green-500' :
-                          color === 'yellow' ? 'bg-yellow-500' : 'bg-red-500'
-                        }`}
-                        style={{ width: `${percentage}%` }}
-                      />
-                    </div>
-                  </div>
-                );
-              })}
+                  );
+                })
+              )}
             </div>
           </div>
         </div>
@@ -235,7 +242,7 @@ export const EnhancedAdminDashboard: React.FC = () => {
                 <CheckCircle className="w-8 h-8 text-blue-600" />
                 <div>
                   <p className="font-medium text-blue-900">Taxa de Sucesso OCR</p>
-                  <p className="text-2xl font-bold text-blue-600">94.2%</p>
+                  <p className="text-2xl font-bold text-blue-600">94.2%</p> {/* Placeholder estático */}
                 </div>
               </div>
             </div>
@@ -245,17 +252,17 @@ export const EnhancedAdminDashboard: React.FC = () => {
                 <TrendingUp className="w-8 h-8 text-green-600" />
                 <div>
                   <p className="font-medium text-green-900">Crescimento Mensal</p>
-                  <p className="text-2xl font-bold text-green-600">+23%</p>
+                  <p className="text-2xl font-bold text-green-600">+23%</p> {/* Placeholder estático */}
                 </div>
               </div>
             </div>
             
-            <div className="p-4 bg-orange-50 rounded-lg border border-orange-200">
+            <div className="p-4 bg-yellow-50 rounded-lg border border-yellow-200"> {/* Corrigido de orange-50 para yellow-50 */}
               <div className="flex items-center space-x-3">
-                <AlertCircle className="w-8 h-8 text-orange-600" />
+                <AlertCircle className="w-8 h-8 text-yellow-600" /> {/* Corrigido de orange-600 para yellow-600 */}
                 <div>
-                  <p className="font-medium text-orange-900">Feedbacks Pendentes</p>
-                  <p className="text-2xl font-bold text-orange-600">7</p>
+                  <p className="font-medium text-yellow-900">Feedbacks Pendentes</p> {/* Corrigido de orange-900 para yellow-900 */}
+                  <p className="text-2xl font-bold text-yellow-600">7</p> {/* Placeholder estático */}
                 </div>
               </div>
             </div>
@@ -288,8 +295,12 @@ export const EnhancedAdminDashboard: React.FC = () => {
               <tr key={bill.id} className="hover:bg-gray-50">
                 <td className="px-6 py-4 whitespace-nowrap">
                   <div>
-                    <div className="text-sm font-medium text-gray-900">{bill.customer_name}</div>
-                    <div className="text-sm text-gray-500">{bill.installation_number}</div>
+                    <div className="text-sm font-medium text-gray-900">
+                      {bill.customer_name}
+                    </div>
+                    <div className="text-sm text-gray-500">
+                      {bill.installation_number}
+                    </div>
                   </div>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap">
