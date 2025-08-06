@@ -39,7 +39,7 @@ export interface ProcessedData {
   consumption_kwh: number;
   total_value: number;
   due_date: string;
-  tariff_flag: string;
+  tariff_flag: 'verde' | 'amarela' | 'vermelha'; // <--- CORREÇÃO APLICADA AQUI
   distributor: string;
   reference_month: string;
 }
